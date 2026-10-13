@@ -1,4 +1,4 @@
-name: Deploy React App to GitHub Pages
+name: Deploy Static React App to GitHub Pages
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-package-lock
 
       - name: Build app
         run: npm run build
