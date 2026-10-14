@@ -9,12 +9,10 @@
   },
  "scripts": {
   "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-  "build": "vinxi build",
-  "preview": "node scripts/with-app-env.mjs vite preview",
-  "typecheck": "tsc --noEmit",
-  "lint": "eslint .",
-  "format": "prettier --write ."
-},
+  "build": "vite build",
+  "start": "node .output/server/index.mjs",
+  ...
+}
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@hookform/resolvers": "^5.7.0",
