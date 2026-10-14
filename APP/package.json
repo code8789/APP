@@ -1,18 +1,16 @@
 {
-  "homepage": "https://code8789.github.io/APP",
   "name": "app-builder-workspace",
   "private": true,
   "sideEffects": false,
   "type": "module",
-  "overrides": {
-    "nf3": "0.3.17"
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
- "scripts": {
-  "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-  "build": "vite build",
-  "start": "node .output/server/index.mjs",
-  ...
-}
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@hookform/resolvers": "^5.7.0",
