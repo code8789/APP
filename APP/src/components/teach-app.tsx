@@ -1,589 +1,282 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import {
-  ArrowUpRight,
-  ChevronLeft,
-  ChevronRight,
-  Circle,
-  Crosshair,
-  Download,
-  Eraser,
-  FolderOpen,
-  Hand,
-  Highlighter,
-  ImagePlus,
-  Maximize2,
-  Minus,
-  Pencil,
-  Plus,
-  Redo2,
-  Slash,
-  Square,
-  Type,
-  Undo2,
-  X,
-} from "lucide-react";
-import { COLORS, colorName } from "@/components/teach/ink";
-import { Engine, type Prefs, type StageEls, type TeachHooks, type TeachPatch, type Tool } from "@/components/teach/engine";
-import { sampleHtml } from "@/components/teach/sample";
-
-const TOOLS: { id: Tool; label: string; icon: typeof Hand }[] = [
-  { id: "hand", label: "Hand — scroll", icon: Hand },
-  { id: "pen", label: "Pen", icon: Pencil },
-  { id: "highlighter", label: "Highlighter", icon: Highlighter },
-  { id: "eraser", label: "Eraser", icon: Eraser },
-  { id: "text", label: "Text", icon: Type },
-  { id: "line", label: "Line", icon: Slash },
-  { id: "arrow", label: "Arrow", icon: ArrowUpRight },
-  { id: "rect", label: "Box", icon: Square },
-  { id: "circle", label: "Circle", icon: Circle },
-  { id: "laser", label: "Laser", icon: Crosshair },
-];
-
-type Ask =
-  | { kind: "text"; title: string; placeholder?: string }
-  | { kind: "page"; current: number; total: number };
-
-const Stage = memo(function Stage({
-  hooksRef,
-  onReady,
-}: {
-  hooksRef: RefObject<TeachHooks | null>;
-  onReady: (engine: Engine | null) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const sizerRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const els: StageEls = {
-      scroll: scrollRef.current!,
-      sizer: sizerRef.current!,
-      stage: stageRef.current!,
-    };
-    const engine = new Engine(els, {
-      getPrefs: () => hooksRef.current!.getPrefs(),
-      patch: (p) => hooksRef.current!.patch(p),
-      onZoom: (z) => hooksRef.current!.onZoom(z),
-      requestText: (opts) => hooksRef.current!.requestText(opts),
-      requestPage: (current, total) => hooksRef.current!.requestPage(current, total),
-      onEscape: () => hooksRef.current!.onEscape(),
-      onJump: () => hooksRef.current!.onJump(),
-    });
-    onReady(engine);
-    return () => {
-      engine.destroy();
-      onReady(null);
-    };
-  }, [hooksRef, onReady]);
-
-  return (
-    <div ref={scrollRef} className="teach-scroll">
-      <div ref={sizerRef} className="teach-sizer">
-        <div ref={stageRef} className="teach-stage" />
-        <div className="dock-spacer" />
-      </div>
-    </div>
-  );
-});
+import React, { useState, useRef } from 'react';
+import { 
+  Hand, PenTool, Eraser, Sparkles, Wand2, Minus, Shapes, 
+  FilePlus, ChevronUp, ChevronDown, Check, Upload 
+} from 'lucide-react';
+import { DrawingEngine, Stroke } from './engine';
 
 export function TeachApp() {
-  const engineRef = useRef<Engine | null>(null);
-  const zoomRef = useRef<HTMLSpanElement>(null);
-  const zoomLive = useRef(1);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const dirRef = useRef<HTMLInputElement>(null);
-  const mediaRef = useRef<HTMLInputElement>(null);
-  const thumbRef = useRef<HTMLDivElement>(null);
-  const askRef = useRef<((value: string | null) => void) | null>(null);
-  const [tool, setTool] = useState<Tool>("hand");
-  const [color, setColor] = useState<string>(COLORS[0]);
-  const [size, setSize] = useState(5);
-  const [opacity, setOpacity] = useState(100);
-  const [invert, setInvert] = useState(false);
-  const [colorsOpen, setColorsOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [thumbsOpen, setThumbsOpen] = useState(false);
-  const [ask, setAsk] = useState<Ask | null>(null);
-  const [draft, setDraft] = useState("");
-  const [ui, setUi] = useState({
-    docName: "",
-    kind: null as "pdf" | "html" | null,
-    page: 1,
-    pageCount: 0,
-    canUndo: false,
-    canRedo: false,
-    status: "",
-    progress: null as { label: string; ratio: number } | null,
-    video: false,
-    ready: false,
-  });
+  const [engine] = useState(() => new DrawingEngine());
+  const [activeTool, setActiveTool] = useState<string>('pen');
+  const [currentColor, setCurrentColor] = useState<string>('#000000');
+  const [eraserMode, setEraserMode] = useState<'object' | 'pixel'>('object');
+  const [eraserSize, setEraserSize] = useState<number>(20);
+  const [autoShapeEnabled, setAutoShapeEnabled] = useState<boolean>(false);
+  const [isMinimized, setIsMinimized] = useState<boolean>(false);
+  const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
+  const [showEraserMenu, setShowEraserMenu] = useState<boolean>(false);
+  const [showBlankMenu, setShowBlankMenu] = useState<boolean>(false);
 
-  const prefsRef = useRef<Prefs>({ tool: "hand", color: COLORS[0], size: 5, opacity: 1, invert: false });
-  prefsRef.current = { tool, color, size, opacity: opacity / 100, invert };
+  // Pages state supporting HTML imports and Blank Pages
+  const [pages, setPages] = useState<Array<{ id: string; type: 'html' | 'blank'; content: string; bg: string }>>([
+    { id: '1', type: 'blank', content: '', bg: '#ffffff' }
+  ]);
+  const [currentPage, setCurrentPage] = useState<number>(0);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
 
-  const hooksRef = useRef<TeachHooks>(null!);
-  hooksRef.current = {
-    getPrefs: () => prefsRef.current,
-    patch: (p: TeachPatch) => {
-      setUi((prev) => ({
-        docName: p.docName ?? prev.docName,
-        kind: p.kind === undefined ? prev.kind : p.kind,
-        page: p.page ?? prev.page,
-        pageCount: p.pageCount ?? prev.pageCount,
-        canUndo: p.canUndo ?? prev.canUndo,
-        canRedo: p.canRedo ?? prev.canRedo,
-        status: p.status ?? prev.status,
-        progress: p.progress === undefined ? prev.progress : p.progress,
-        video: p.video ?? prev.video,
-        ready: p.ready ?? prev.ready,
-      }));
-    },
-    onZoom: (z: number) => {
-      zoomLive.current = z;
-      if (zoomRef.current) zoomRef.current.textContent = `${Math.round(z * 100)}%`;
-    },
-    requestText: (opts) =>
-      new Promise((resolve) => {
-        askRef.current = resolve;
-        setDraft("");
-        setAsk({ kind: "text", title: opts.title, placeholder: opts.placeholder });
-      }),
-    requestPage: (current, total) =>
-      new Promise((resolve) => {
-        askRef.current = (value) => {
-          if (!value) {
-            resolve(null);
-            return;
-          }
-          const n = Number.parseInt(value, 10);
-          resolve(Number.isFinite(n) ? n : null);
-        };
-        setDraft(String(current));
-        setAsk({ kind: "page", current, total });
-      }),
-    onEscape: () => {
-      setColorsOpen(false);
-      setSettingsOpen(false);
-      setThumbsOpen(false);
-    },
-    onJump: () => setThumbsOpen(false),
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const colors = ['#000000', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ffffff'];
+
+  // Handle HTML Import Fix (Full content, images, videos, GIFs parsing)
+  const handleHtmlImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const rawHtml = event.target?.result as string;
+      if (rawHtml) {
+        const wrapped = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                body { margin: 0; padding: 16px; font-family: sans-serif; background: #fff; color: #000; }
+                img, video, iframe { max-width: 100%; height: auto; display: block; margin: 10px auto; }
+              </style>
+            </head>
+            <body>${rawHtml}</body>
+          </html>
+        `;
+        setPages(prev => [...prev, { id: Date.now().toString(), type: 'html', content: wrapped, bg: '#ffffff' }]);
+        setCurrentPage(pages.length);
+      }
+    };
+    reader.readAsText(file);
   };
 
-  const onReady = useCallback((engine: Engine | null) => {
-    engineRef.current = engine;
-  }, []);
-
-  useLayoutEffect(() => {
-    if (zoomRef.current) zoomRef.current.textContent = `${Math.round(zoomLive.current * 100)}%`;
-  });
-
-  useEffect(() => {
-    engineRef.current?.notePrefs();
-  }, [tool, invert]);
-
-  useEffect(() => {
-    if (thumbsOpen && thumbRef.current) void engineRef.current?.fillThumbs(thumbRef.current);
-  }, [thumbsOpen, ui.docName, ui.pageCount]);
-
-  useEffect(() => {
-    const node = dirRef.current;
-    if (!node) return;
-    node.setAttribute("webkitdirectory", "");
-    node.setAttribute("directory", "");
-  }, []);
-
-  function closeAsk(value: string | null) {
-    const resolve = askRef.current;
-    askRef.current = null;
-    setAsk(null);
-    resolve?.(value);
-  }
-
-  function chooseFiles(list: FileList | null) {
-    const files = list ? [...list] : [];
-    if (files.length) void engineRef.current?.openFiles(files);
-  }
+  const handleAddBlankPage = (type: 'white' | 'black') => {
+    setPages(prev => [...prev, {
+      id: Date.now().toString(),
+      type: 'blank',
+      content: '',
+      bg: type === 'white' ? '#ffffff' : '#000000'
+    }]);
+    setCurrentPage(pages.length);
+  };
 
   return (
-    <div className="teach-app">
-      <header className="teach-top">
-        <div className="teach-brand">
-          <img src="/favicon.svg" alt="" />
-          <strong>TeachPDF</strong>
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-gray-100 dark:bg-gray-950 select-none">
+      
+      {/* Minimizable Header Tool Pad */}
+      <header className={`transition-all duration-300 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 flex items-center justify-between z-40 ${isMinimized ? 'h-0 opacity-0 overflow-hidden py-0' : 'h-14 opacity-100 py-2'}`}>
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-sm text-gray-800 dark:text-white">Workspace</span>
+          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+            Page {currentPage + 1} / {pages.length}
+          </span>
         </div>
-        <div className="teach-actions">
-          <button type="button" className="teach-btn is-primary" onClick={() => fileRef.current?.click()}>
-            <FolderOpen size={18} />
-            <span className="label">Open</span>
-          </button>
-          <button type="button" className="teach-btn" aria-label="Previous page" onClick={() => engineRef.current?.prev()}>
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            type="button"
-            className="teach-btn"
-            onClick={() => void engineRef.current?.askPage()}
-            aria-label="Go to page"
-          >
-            {ui.ready ? `${ui.page} / ${ui.pageCount}` : "—"}
-          </button>
-          <button type="button" className="teach-btn" aria-label="Next page" onClick={() => engineRef.current?.next()}>
-            <ChevronRight size={18} />
-          </button>
-          <button type="button" className="teach-btn" aria-label="Zoom out" onClick={() => engineRef.current?.zoomOut()}>
-            <Minus size={18} />
-          </button>
-          <button type="button" className="teach-btn" aria-label="Fit width" onClick={() => engineRef.current?.fit()}>
-            <span ref={zoomRef}>100%</span>
-          </button>
-          <button type="button" className="teach-btn" aria-label="Zoom in" onClick={() => engineRef.current?.zoomIn()}>
-            <Plus size={18} />
-          </button>
-          <button type="button" className="teach-btn" aria-label="Fit page" onClick={() => engineRef.current?.fit()}>
-            <Maximize2 size={18} />
-          </button>
-          <button type="button" className="teach-btn" aria-label="Undo" onClick={() => engineRef.current?.undo()}>
-            <Undo2 size={18} />
-          </button>
-          <button type="button" className="teach-btn" aria-label="Redo" onClick={() => engineRef.current?.redo()}>
-            <Redo2 size={18} />
-          </button>
-          <button type="button" className="teach-btn" aria-label="Save" onClick={() => void engineRef.current?.save()}>
-            <Download size={18} />
-          </button>
+        <div className="flex items-center gap-2">
+          <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
+            <Upload size={14} /> Import HTML
+            <input type="file" accept=".html,.htm" onChange={handleHtmlImport} className="hidden" />
+          </label>
         </div>
       </header>
 
-      <div
-        className="teach-main"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
-          event.preventDefault();
-          chooseFiles(event.dataTransfer.files);
-        }}
-      >
-        <Stage hooksRef={hooksRef} onReady={onReady} />
-
-        {!ui.ready && (
-          <div className="teach-empty">
-            <div className="teach-card">
-              <p className="teach-kicker">Classroom viewer</p>
-              <h1>Teach on the document</h1>
-              <p>
-                Open a PDF, or an HTML lesson with pictures, GIFs, and video. Animation stays alive — the page
-                is not flattened to a screenshot.
-              </p>
-              <div className="gesture-list">
-                <div>
-                  <strong>Pinch</strong>
-                  <span>Zoom, like a PDF reader</span>
-                </div>
-                <div>
-                  <strong>Hand</strong>
-                  <span>One finger scrolls. Double-tap zooms.</span>
-                </div>
-                <div>
-                  <strong>Pen</strong>
-                  <span>One finger writes. Two fingers still move the page.</span>
-                </div>
-                <div>
-                  <strong>Video</strong>
-                  <span>Hand, then tap the video to use its controls.</span>
-                </div>
-              </div>
-              <div className="teach-card-actions">
-                <button type="button" className="teach-btn is-primary" onClick={() => fileRef.current?.click()}>
-                  <FolderOpen size={18} />
-                  <span className="label">Open file</span>
-                </button>
-                <button type="button" className="teach-btn" onClick={() => dirRef.current?.click()}>
-                  <span className="label">Folder</span>
-                </button>
-                <button
-                  type="button"
-                  className="teach-btn"
-                  onClick={() => void engineRef.current?.openHtmlText("fractions.html", sampleHtml())}
-                >
-                  <span className="label">Sample HTML</span>
-                </button>
-                <button
-                  type="button"
-                  className="teach-btn"
-                  onClick={() => {
-                    void (async () => {
-                      const res = await fetch("/sample-lesson.pdf");
-                      const file = new File([await res.arrayBuffer()], "sample-lesson.pdf", {
-                        type: "application/pdf",
-                      });
-                      await engineRef.current?.openPdfFile(file);
-                    })();
-                  }}
-                >
-                  <span className="label">Sample PDF</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {ui.status && <div className="teach-toast">{ui.status}</div>}
-
-        {ui.video && (
-          <div className="teach-chip">
-            Video controls
-            <button type="button" className="teach-btn" onClick={() => engineRef.current?.clearVideoFocus()}>
-              Done
-            </button>
-          </div>
-        )}
-
-        {colorsOpen && (
-          <div className="teach-pop" role="listbox" aria-label="Ink colors">
-            {COLORS.map((swatch) => (
-              <button
-                key={swatch}
-                type="button"
-                role="option"
-                aria-selected={color === swatch}
-                aria-label={colorName(swatch)}
-                className={`swatch${color === swatch ? " is-on" : ""}${swatch === "#ffffff" ? " swatch-light" : ""}`}
-                style={{ background: swatch }}
-                onClick={() => {
-                  setColor(swatch);
-                  setColorsOpen(false);
-                }}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className="teach-dock" role="toolbar" aria-label="Teaching tools">
-          {TOOLS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`teach-tool${tool === item.id ? " is-on" : ""}`}
-                aria-label={item.label}
-                aria-pressed={tool === item.id}
-                onClick={() => {
-                  setTool(item.id);
-                  setColorsOpen(false);
-                }}
-              >
-                <Icon size={18} />
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            className="teach-tool"
-            aria-label="Colors, including black and white"
-            onClick={() => {
-              setColorsOpen((open) => !open);
-              setSettingsOpen(false);
-            }}
-          >
-            <span className="color-dot" style={{ background: color }} />
-          </button>
-          <button
-            type="button"
-            className="teach-tool"
-            aria-label="Add image, GIF, or video"
-            onClick={() => mediaRef.current?.click()}
-          >
-            <ImagePlus size={18} />
-          </button>
-          <button
-            type="button"
-            className={`teach-tool${settingsOpen ? " is-on" : ""}`}
-            aria-label="Thickness and page options"
-            onClick={() => {
-              setSettingsOpen((open) => !open);
-              setColorsOpen(false);
-            }}
-          >
-            <SlidersIcon />
-          </button>
-          <button
-            type="button"
-            className={`teach-tool${thumbsOpen ? " is-on" : ""}`}
-            aria-label="Pages"
-            onClick={() => setThumbsOpen((open) => !open)}
-          >
-            <PagesIcon />
-          </button>
+      {/* Main Canvas / Viewer Area */}
+      <main className="flex-1 relative flex items-center justify-center overflow-auto p-2 sm:p-6">
+        <div 
+          className="relative shadow-2xl rounded-xl overflow-hidden transition-transform duration-100 bg-white"
+          style={{ 
+            width: '1000px', 
+            height: '100%', 
+            maxHeight: '1300px',
+            backgroundColor: pages[currentPage]?.bg || '#ffffff',
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: 'center center'
+          }}
+        >
+          {pages[currentPage]?.type === 'html' ? (
+            <iframe 
+              srcDoc={pages[currentPage].content} 
+              className="w-full h-full border-0" 
+              title="Imported Document"
+            />
+          ) : (
+            <canvas 
+              ref={canvasRef}
+              className="w-full h-full touch-none cursor-crosshair"
+            />
+          )}
         </div>
+      </main>
 
-        {settingsOpen && (
-          <div className="teach-sheet">
-            <h2>Stroke and page</h2>
-            <div className="setting-row">
-              <label htmlFor="thickness">Thickness</label>
-              <input
-                id="thickness"
-                type="range"
-                min={1}
-                max={32}
-                value={size}
-                onChange={(event) => setSize(Number(event.target.value))}
-              />
-            </div>
-            <div className="setting-row">
-              <label htmlFor="opacity">Opacity</label>
-              <input
-                id="opacity"
-                type="range"
-                min={15}
-                max={100}
-                value={opacity}
-                onChange={(event) => setOpacity(Number(event.target.value))}
-              />
-            </div>
-            <div className="setting-row">
-              <span>PDF invert</span>
-              <button
-                type="button"
-                className={`teach-btn${invert ? " is-on" : ""}`}
-                onClick={() => {
-                  if (ui.kind !== "pdf") {
-                    engineRef.current?.flash("Invert is for PDF pages");
-                    return;
-                  }
-                  setInvert((value) => !value);
-                }}
-              >
-                {invert ? "On" : "Off"}
-              </button>
-            </div>
-            <div className="setting-row">
-              <span>Clear page</span>
-              <button type="button" className="teach-btn" onClick={() => engineRef.current?.clearPage()}>
-                Clear
-              </button>
-            </div>
-            <div className="setting-row">
-              <span>Close</span>
-              <button type="button" className="teach-btn" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+      {/* Rearranged Drawing Toolbar & Floating Controls */}
+      <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 transition-transform duration-300 ${isMinimized ? 'translate-y-20' : 'translate-y-0'}`}>
+        
+        {/* Minimize / Expand Toggle Tab */}
+        <button 
+          onClick={() => setIsMinimized(!isMinimized)}
+          className="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-1 rounded-t-lg text-xs flex items-center gap-1 shadow-md font-medium"
+        >
+          {isMinimized ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {isMinimized ? 'Show Tools' : 'Minimize Pad'}
+        </button>
 
-        {thumbsOpen && (
-          <div className="teach-drawer">
-            <div className="setting-row" style={{ marginTop: 0 }}>
-              <h2>Pages</h2>
-              <button type="button" className="teach-btn" onClick={() => setThumbsOpen(false)} aria-label="Close pages">
-                <X size={16} />
-              </button>
-            </div>
-            <div ref={thumbRef} className="thumb-list" />
-          </div>
-        )}
+        <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border border-gray-200 dark:border-gray-800 p-2 rounded-2xl shadow-2xl flex items-center gap-1.5 overflow-x-auto max-w-[96vw]">
+          
+          {/* 1. Pan Tool */}
+          <button
+            onClick={() => setActiveTool('pan')}
+            className={`p-2.5 rounded-xl transition-colors ${activeTool === 'pan' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            title="Pan"
+          >
+            <Hand size={20} />
+          </button>
 
-        {ui.progress && (
-          <div className="teach-modal" role="status">
-            <div className="panel">
-              <h2>{ui.progress.label}</h2>
-              <div className="progress-track">
-                <i style={{ width: `${Math.round(ui.progress.ratio * 100)}%` }} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {ask && (
-          <div className="teach-modal">
-            <form
-              className="panel"
-              onSubmit={(event) => {
-                event.preventDefault();
-                closeAsk(draft);
-              }}
+          {/* 2. Pen Tool with Color Picker beside it */}
+          <div className="relative flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTool('pen')}
+              className={`p-2 rounded-lg transition-colors ${activeTool === 'pen' ? 'bg-blue-600 text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+              title="Pen"
             >
-              <h2>{ask.kind === "text" ? ask.title : `Go to page (1–${ask.total})`}</h2>
-              {ask.kind === "text" ? (
-                <textarea
-                  autoFocus
-                  rows={3}
-                  placeholder={ask.placeholder}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+              <PenTool size={20} />
+            </button>
+            <button
+              onClick={() => setShowColorPicker(!showColorPicker)}
+              className="w-5 h-5 rounded-full border-2 border-white shadow-sm"
+              style={{ backgroundColor: currentColor }}
+              title="Choose Color"
+            />
+            {showColorPicker && (
+              <div className="absolute bottom-14 left-0 bg-white dark:bg-gray-800 p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex gap-1.5">
+                {colors.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => { setCurrentColor(c); engine.currentColor = c; setShowColorPicker(false); setActiveTool('pen'); }}
+                    className="w-7 h-7 rounded-full border border-gray-300 flex items-center justify-center hover:scale-110 transition-transform"
+                    style={{ backgroundColor: c }}
+                  >
+                    {currentColor === c && <Check size={12} className={c === '#ffffff' ? 'text-black' : 'text-white'} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 3. Eraser Tool (Object & Pixel with Size Controller) */}
+          <div className="relative">
+            <button
+              onClick={() => { setActiveTool('eraser'); setShowEraserMenu(!showEraserMenu); }}
+              className={`p-2.5 rounded-xl transition-colors ${activeTool === 'eraser' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+              title="Eraser"
+            >
+              <Eraser size={20} />
+            </button>
+            {showEraserMenu && (
+              <div className="absolute bottom-14 left-0 bg-white dark:bg-gray-800 p-3 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 w-48 space-y-2">
+                <div className="text-xs font-bold text-gray-500">Eraser Mode</div>
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => { setEraserMode('object'); engine.eraserMode = 'object'; }}
+                    className={`flex-1 py-1 text-xs rounded-lg ${eraserMode === 'object' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                  >
+                    Object
+                  </button>
+                  <button 
+                    onClick={() => { setEraserMode('pixel'); engine.eraserMode = 'pixel'; }}
+                    className={`flex-1 py-1 text-xs rounded-lg ${eraserMode === 'pixel' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                  >
+                    Pixel
+                  </button>
+                </div>
+                <div className="text-xs font-bold text-gray-500">Size: {eraserSize}px</div>
+                <input 
+                  type="range" 
+                  min="5" 
+                  max="50" 
+                  value={eraserSize} 
+                  onChange={(e) => { setEraserSize(Number(e.target.value)); engine.eraserSize = Number(e.target.value); }}
+                  className="w-full accent-blue-600"
                 />
-              ) : (
-                <input
-                  autoFocus
-                  inputMode="numeric"
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                />
-              )}
-              <div className="modal-actions">
-                <button type="button" className="teach-btn" onClick={() => closeAsk(null)}>
-                  Cancel
+              </div>
+            )}
+          </div>
+
+          {/* 4. Laser Pointer */}
+          <button
+            onClick={() => setActiveTool('laser')}
+            className={`p-2.5 rounded-xl transition-colors ${activeTool === 'laser' ? 'bg-red-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            title="Laser Pointer"
+          >
+            <Sparkles size={20} />
+          </button>
+
+          {/* 5. Auto-Detection of Shapes Toggle Button */}
+          <button
+            onClick={() => {
+              const newState = !autoShapeEnabled;
+              setAutoShapeEnabled(newState);
+              engine.autoShapeEnabled = newState;
+            }}
+            className={`p-2.5 rounded-xl flex items-center gap-1 transition-all ${autoShapeEnabled ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500'}`}
+            title="Toggle Shape Auto-Detection"
+          >
+            <Wand2 size={20} />
+            <span className="text-xs font-semibold hidden sm:inline">Auto-Shape</span>
+          </button>
+
+          {/* 6. Line Tool */}
+          <button
+            onClick={() => setActiveTool('line')}
+            className={`p-2.5 rounded-xl transition-colors ${activeTool === 'line' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            title="Line"
+          >
+            <Minus size={20} />
+          </button>
+
+          {/* 7. All Shapes */}
+          <button
+            onClick={() => setActiveTool('shapes')}
+            className={`p-2.5 rounded-xl transition-colors ${activeTool === 'shapes' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            title="Shapes"
+          >
+            <Shapes size={20} />
+          </button>
+
+          {/* 8. Blank Page Adder Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBlankMenu(!showBlankMenu)}
+              className="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+              title="Add Blank Page"
+            >
+              <FilePlus size={20} />
+            </button>
+            {showBlankMenu && (
+              <div className="absolute bottom-14 right-0 bg-white dark:bg-gray-800 p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col gap-1 w-32">
+                <button 
+                  onClick={() => { handleAddBlankPage('white'); setShowBlankMenu(false); }}
+                  className="w-full text-left px-3 py-1 text-xs bg-white text-black rounded-lg hover:bg-gray-100 border border-gray-200 font-medium"
+                >
+                  + White Page
                 </button>
-                <button type="submit" className="teach-btn is-primary">
-                  Place
+                <button 
+                  onClick={() => { handleAddBlankPage('black'); setShowBlankMenu(false); }}
+                  className="w-full text-left px-3 py-1 text-xs bg-black text-white rounded-lg hover:bg-gray-900 font-medium"
+                >
+                  + Black Page
                 </button>
               </div>
-            </form>
+            )}
           </div>
-        )}
+
+        </div>
       </div>
 
-      <input
-        ref={fileRef}
-        className="sr-only"
-        type="file"
-        multiple
-        onChange={(event) => {
-          chooseFiles(event.target.files);
-          event.target.value = "";
-        }}
-      />
-      <input
-        ref={dirRef}
-        className="sr-only"
-        type="file"
-        multiple
-        onChange={(event) => {
-          chooseFiles(event.target.files);
-          event.target.value = "";
-        }}
-      />
-      <input
-        ref={mediaRef}
-        className="sr-only"
-        type="file"
-        accept="image/*,video/*,.gif"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void engineRef.current?.insertMedia(file);
-          event.target.value = "";
-        }}
-      />
     </div>
-  );
-}
-
-function SlidersIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M4 7h10M4 17h6M14 17h6M18 7h2" />
-      <circle cx="16" cy="7" r="2" />
-      <circle cx="12" cy="17" r="2" />
-    </svg>
-  );
-}
-
-function PagesIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <rect x="4" y="3" width="12" height="16" rx="1.5" />
-      <path d="M8 7h6M8 11h6M10 19h10v2" />
-    </svg>
   );
 }
