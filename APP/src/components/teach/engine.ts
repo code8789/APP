@@ -32,7 +32,7 @@ export class DrawingEngine {
 
   public createStroke(tool: 'pen' | 'line' | 'shape' | 'eraser' | 'laser', point: Point): Stroke {
     const newStroke: Stroke = {
-      id: Date.now().toString() + Math.random().toString(36.substring(2, 7)),
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
       tool,
       points: [point],
       color: this.currentColor,
@@ -43,7 +43,6 @@ export class DrawingEngine {
     return newStroke;
   }
 
-  // Fine-tuned Auto-Shape Detection
   public processAutoShape(stroke: Stroke): Stroke {
     if (!this.autoShapeEnabled || stroke.points.length < 8) return stroke;
 
@@ -52,14 +51,11 @@ export class DrawingEngine {
     const end = points[points.length - 1];
     const distance = Math.hypot(end.x - start.x, end.y - start.y);
 
-    // Detect Circle / Closed Loop
     if (distance < 30 && points.length > 12) {
       stroke.tool = 'shape';
-      // Normalize into a clean circle representation
       return stroke;
     }
 
-    // Detect Straight Line
     let maxDev = 0;
     for (let i = 1; i < points.length - 1; i++) {
       const dev = Math.abs((end.y - start.y) * points[i].x - (end.x - start.x) * points[i].y + end.x * start.y - end.y * start.x) / (distance || 1);
@@ -68,7 +64,7 @@ export class DrawingEngine {
 
     if (maxDev < 10) {
       stroke.tool = 'line';
-      stroke.points = [start, end]; // Snap to exact straight line endpoints
+      stroke.points = [start, end];
     }
 
     return stroke;
