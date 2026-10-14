@@ -3,7 +3,7 @@ import {
   Hand, PenTool, Eraser, Sparkles, Wand2, Minus, Shapes, 
   FilePlus, ChevronUp, ChevronDown, Check, Upload 
 } from 'lucide-react';
-import { DrawingEngine, Stroke } from './engine';
+import { DrawingEngine } from './engine';
 
 export function TeachApp() {
   const [engine] = useState(() => new DrawingEngine());
@@ -17,17 +17,15 @@ export function TeachApp() {
   const [showEraserMenu, setShowEraserMenu] = useState<boolean>(false);
   const [showBlankMenu, setShowBlankMenu] = useState<boolean>(false);
 
-  // Pages state supporting HTML imports and Blank Pages
   const [pages, setPages] = useState<Array<{ id: string; type: 'html' | 'blank'; content: string; bg: string }>>([
     { id: '1', type: 'blank', content: '', bg: '#ffffff' }
   ]);
   const [currentPage, setCurrentPage] = useState<number>(0);
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [zoomLevel] = useState<number>(1);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const colors = ['#000000', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ffffff'];
 
-  // Handle HTML Import Fix (Full content, images, videos, GIFs parsing)
   const handleHtmlImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -69,7 +67,7 @@ export function TeachApp() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-gray-100 dark:bg-gray-950 select-none">
       
-      {/* Minimizable Header Tool Pad */}
+      {/* Header Tool Pad */}
       <header className={`transition-all duration-300 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 flex items-center justify-between z-40 ${isMinimized ? 'h-0 opacity-0 overflow-hidden py-0' : 'h-14 opacity-100 py-2'}`}>
         <div className="flex items-center gap-3">
           <span className="font-bold text-sm text-gray-800 dark:text-white">Workspace</span>
@@ -85,7 +83,7 @@ export function TeachApp() {
         </div>
       </header>
 
-      {/* Main Canvas / Viewer Area */}
+      {/* Main Workspace Area */}
       <main className="flex-1 relative flex items-center justify-center overflow-auto p-2 sm:p-6">
         <div 
           className="relative shadow-2xl rounded-xl overflow-hidden transition-transform duration-100 bg-white"
@@ -113,10 +111,9 @@ export function TeachApp() {
         </div>
       </main>
 
-      {/* Rearranged Drawing Toolbar & Floating Controls */}
+      {/* Rearranged Drawing Toolbar */}
       <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 transition-transform duration-300 ${isMinimized ? 'translate-y-20' : 'translate-y-0'}`}>
         
-        {/* Minimize / Expand Toggle Tab */}
         <button 
           onClick={() => setIsMinimized(!isMinimized)}
           className="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-1 rounded-t-lg text-xs flex items-center gap-1 shadow-md font-medium"
@@ -136,7 +133,7 @@ export function TeachApp() {
             <Hand size={20} />
           </button>
 
-          {/* 2. Pen Tool with Color Picker beside it */}
+          {/* 2. Pen Tool + Color Picker */}
           <div className="relative flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
             <button
               onClick={() => setActiveTool('pen')}
